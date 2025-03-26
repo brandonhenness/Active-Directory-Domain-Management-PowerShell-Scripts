@@ -109,7 +109,7 @@ To **export** results to CSV:
 
 **Example:**  
 ```powershell
-.\Create-ADComputers.ps1 -CsvPath "computers.csv" -TranscriptPath "log.txt" -Verbose
+.\Create-ADComputers.ps1 -Path "computers.csv"
 ```
 - **CSV Input**: The script reads the provided CSV file (or opens a file selection dialog if none is provided).  
 - **Computer Creation**: It generates a computer name, creates the computer object in the specified OU, and adds it to any listed AD groups.  

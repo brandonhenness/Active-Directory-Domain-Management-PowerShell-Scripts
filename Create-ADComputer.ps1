@@ -10,7 +10,7 @@
     Logging is captured using Start-Transcript, and verbose output is supported. A CSV template can also be
     generated using the -GenerateTemplate switch.
 
-.PARAMETER CsvPath
+.PARAMETER Path
     Optional path to the input CSV file. If not provided, a file selection dialog is shown.
 
 .PARAMETER TranscriptPath
@@ -20,7 +20,7 @@
     If specified, creates a sample CSV template and exits.
 
 .EXAMPLE
-    .\Create-ADComputers.ps1 -CsvPath "computers.csv" -TranscriptPath "log.txt" -Verbose
+    .\Create-ADComputers.ps1 -Path "computers.csv" -TranscriptPath "log.txt" -Verbose
 
 .EXAMPLE
     .\Create-ADComputers.ps1 -GenerateTemplate
@@ -34,7 +34,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$CsvPath,
+    [string]$Path,
     [string]$TranscriptPath,
     [switch]$GenerateTemplate
 )
@@ -81,7 +81,7 @@ if ($GenerateTemplate) {
     return
 }
 
-# File selection dialog if CsvPath is not provided
+# File selection dialog if Path is not provided
 function Select-CsvFile {
     [System.Windows.Forms.OpenFileDialog]$openFileDialog = New-Object System.Windows.Forms.OpenFileDialog
     $openFileDialog.Filter = "CSV Files (*.csv)|*.csv"
@@ -95,14 +95,14 @@ function Select-CsvFile {
     }
 }
 
-if (-not $CsvPath) {
-    $CsvPath = Select-CsvFile
+if (-not $Path) {
+    $Path = Select-CsvFile
 }
 
-Write-Verbose "Selected CSV file: $CsvPath"
+Write-Verbose "Selected CSV file: $Path"
 
 try {
-    $computers = Import-Csv -Path $CsvPath -ErrorAction Stop
+    $computers = Import-Csv -Path $Path -ErrorAction Stop
     Write-Verbose "Successfully imported CSV data."
 } catch {
     Write-Error "Failed to import CSV file. Error: $($_.Exception.Message)"
