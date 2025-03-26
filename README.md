@@ -20,7 +20,8 @@ Managing an Active Directory environment can be time-consuming when done manuall
 
 - Collecting hardware or network information (MAC addresses, IPs, etc.).  
 - Retrieving or updating user and computer objects in AD.  
-- Inventorying domain-joined machines, performing connectivity checks, or mass updates.
+- Inventorying domain-joined machines, performing connectivity checks, or mass updates.  
+- **Creating computer objects from CSV input while automatically applying domain join permissions.**
 
 Scripts in this repo can be used independently or chained together, depending on your workflow.
 
@@ -46,6 +47,17 @@ Scripts in this repo can be used independently or chained together, depending on
   - **Displays** a progress bar as it enumerates AD computers.  
   - **Allows** CSV export (via the `-Output` parameter).  
   - **Automatic transcript logging** if no `-TranscriptPath` is provided.
+
+### 3. **`Create-ADComputers.ps1`**  
+**Purpose**: Creates AD computer objects from a CSV file containing workstation metadata and immediately applies join permissions to the objects.  
+- **Key Features**:
+  - **CSV Input**: Reads a CSV file containing details such as Site ID, Service Tag, Description, OU, and various AD groups.  
+  - **Dynamic Name Generation**: Automatically generates a computer name based on the Site ID and Service Tag.  
+  - **Object Creation**: Creates the computer object in the specified OU.  
+  - **Group Assignment**: Adds the new computer to any specified AD groups.  
+  - **Join Permission Application**: Automatically applies domain join permissions by granting full control (GenericAll) to a specified join group. This is done via an ADSI binding with a triple-slash LDAP URL to ensure the correct DC is targeted.
+  - **Logging & Transcript**: Captures a transcript log (or uses a specified path) and provides verbose output.  
+  - **Template Generation**: Can generate a sample CSV template using the `-GenerateTemplate` switch.
 
 ---
 
@@ -93,6 +105,17 @@ To **export** results to CSV:
 .\Get-ADComputers.ps1 -OU "OU=Servers,DC=YourDomain,DC=com" -Output "C:\Temp\ServersList.csv"
 ```
 
+### `Create-ADComputers.ps1`
+
+**Example:**  
+```powershell
+.\Create-ADComputers.ps1 -CsvPath "computers.csv" -TranscriptPath "log.txt" -Verbose
+```
+- **CSV Input**: The script reads the provided CSV file (or opens a file selection dialog if none is provided).  
+- **Computer Creation**: It generates a computer name, creates the computer object in the specified OU, and adds it to any listed AD groups.  
+- **Join Permissions**: After object creation, the script applies domain join permissions automatically by granting full control (GenericAll) to the join group specified in the CSV (using ADSI to update the object’s ACL).  
+- **Template Generation**: Run with the `-GenerateTemplate` switch to create a sample CSV template named `ComputerTemplate.csv`.
+
 ### Execution Policy
 
 Depending on your setup, you may need to allow script execution:
@@ -114,7 +137,9 @@ This ensures locally created scripts can run.
   - Use `-Output` if you want the results written to a CSV file. Otherwise, the scripts display results in a formatted table.  
 - **Attribute Selection**:  
   - `Get-ADComputers.ps1` uses `-Properties *` but only outputs a subset of fields. You can add/remove attributes based on your needs (`Description`, `Location`, `OperatingSystem`, etc.).  
-  - `Get-MacAddresses.ps1` retrieves MAC addresses via a CIM session; you can modify the code to gather more network-related info if desired.
+  - `Get-MacAddresses.ps1` retrieves MAC addresses via a CIM session; you can modify the code to gather more network-related info if desired.  
+- **Join Permissions** (in `Create-ADComputers.ps1`):  
+  - The script automatically applies domain join permissions by granting full control to the join group specified in the CSV file. This uses an ADSI binding with the LDAP triple-slash syntax to update the object's ACL.
 
 ---
 
@@ -127,7 +152,7 @@ This ensures locally created scripts can run.
    ```
 3. **Commit your changes**:
    ```bash
-   git commit -m "Add new script for AD user reports"
+   git commit -m "Add new script for AD computer creation with join permissions"
    ```
 4. **Push to your branch**:
    ```bash
