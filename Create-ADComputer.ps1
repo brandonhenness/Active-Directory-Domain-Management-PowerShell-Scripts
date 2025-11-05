@@ -32,6 +32,13 @@
     Requires: ActiveDirectory module, PowerShell 5.1+
 #>
 
+[CmdletBinding()]
+param(
+    [string]$Path,
+    [string]$TranscriptPath,
+    [switch]$GenerateTemplate
+)
+
 # PowerShell version check
 if (-not ($PSVersionTable.PSVersion.Major -eq 5 -and $PSVersionTable.PSVersion.Minor -eq 1)) {
     Write-Host "This script must be run in Windows PowerShell 5.1 (not PowerShell 7+)." -ForegroundColor Red
@@ -39,13 +46,6 @@ if (-not ($PSVersionTable.PSVersion.Major -eq 5 -and $PSVersionTable.PSVersion.M
     Write-Host "`nTo open PowerShell 5.1, run 'powershell.exe' instead of 'pwsh.exe'." -ForegroundColor Cyan
     exit 1
 }
-
-[CmdletBinding()]
-param(
-    [string]$Path,
-    [string]$TranscriptPath,
-    [switch]$GenerateTemplate
-)
 
 Add-Type -AssemblyName System.Windows.Forms
 
