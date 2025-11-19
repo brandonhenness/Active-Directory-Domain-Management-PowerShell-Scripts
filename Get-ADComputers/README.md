@@ -1,88 +1,174 @@
+You are right, that README is out of date compared to this script.
+
+Here is an updated `Get-ADComputers/README.md` that matches the current version you pasted, including the dynamic file name, `SearchBase` and `Filter` behavior, and the exported properties.
+
+You can drop this straight into `Get-ADComputers/README.md`:
+
+````md
 # Get AD Computers (`Get-ADComputers.ps1`)
 
-This script enumerates computer objects from a given OU in Active Directory and exports useful attributes such as name, operating system, description, and location.
+This script lists computer objects in Active Directory using a flexible `Get-ADComputer -Filter` expression. It writes results to a timestamped CSV file and logs the entire run to a transcript file next to the script.
+
+The script is designed so that it does not hard code its own file name. The base name of the script file is used automatically in the log and CSV file names, so you can rename the script without breaking the logging behavior.
 
 ---
 
 ## Features
 
-- Queries an OU, including its sub OUs, for computer objects.
-- Retrieves key attributes for reporting or inventory work.
-- Shows a progress bar while it runs.
-- Can export results to CSV.
-- Creates a transcript log of the run.
+- Queries Active Directory for computer objects using any `-Filter` expression that `Get-ADComputer` supports.
+- Optional `SearchBase` parameter to limit the search to a specific OU subtree.
+- Defaults to searching the domain root (`defaultNamingContext`) when `SearchBase` is not supplied.
+- Defaults to `-Filter *` when `Filter` is not supplied.
+- Exports a detailed CSV with commonly useful properties.
+- Records a transcript log for auditing and troubleshooting.
+- Names the CSV and log files dynamically based on the script file name and a timestamp.
 
 ---
 
 ## Requirements
 
-- PowerShell 5.1 or later.
+- Windows PowerShell 5.1 (Desktop edition).
+
+  The script validates this and exits with an error if it is not running in Windows PowerShell 5.1 Desktop.
+
 - Active Directory module:
 
   ```powershell
   Import-Module ActiveDirectory
-  ````
+````
 
-* Read access to the OUs you are querying.
+* Sufficient permissions to query the domain and OUs you target.
 
 ---
 
 ## Parameters
 
-* `-OU`
-  Distinguished name of the OU to query. This is required. Example:
+### `-SearchBase`
+
+Optional distinguished name (DN) of an OU to limit the search scope.
+
+* If omitted, the script uses the domain root from `Get-ADRootDSE`:
 
   ```powershell
-  -OU "OU=Servers,DC=example,DC=com"
+  (Get-ADRootDSE).defaultNamingContext
   ```
 
-* `-Output`
-  Optional CSV file path for exported results.
+* If supplied, the script validates that the DN exists using `Get-ADObject`.
 
-* `-TranscriptPath`
-  Optional path for the transcript log. If not supplied, a file such as `Get-ADComputers-YYYYMMDD_HHMMSS.log` is created in the current directory.
-
----
-
-## Usage
-
-### Basic inventory of all computers in an OU
+Example:
 
 ```powershell
-.\Get-ADComputers.ps1 -OU "OU=Servers,DC=example,DC=com"
+-SearchBase "OU=Education,DC=example,DC=com"
 ```
 
-This:
+### `-Filter`
 
-* Enumerates all computer objects under the `Servers` OU.
-* Displays a table of results in the console.
-* Writes a transcript file to the current directory.
+Optional `Get-ADComputer -Filter` string.
 
-### Export results to CSV
+* If omitted or empty, the script uses `*` which returns all computer objects in the search scope.
+* The value must be a valid `-Filter` expression for `Get-ADComputer`.
+
+Examples:
 
 ```powershell
-.\Get-ADComputers.ps1 -OU "OU=Servers,DC=example,DC=com" -Output "C:\Temp\ServersList.csv"
+-Filter 'Name -like "EDU-*"'
+-Filter 'Enabled -eq $true'
+-Filter 'OperatingSystem -like "Windows 11*" -and Enabled -eq $true'
 ```
-
-This writes the results to `ServersList.csv` while still logging the run.
 
 ---
 
 ## Output
 
-Typical fields in the output include:
+The script creates two files in the same directory as the script:
+
+* Transcript log:
+
+  ```text
+  <ScriptBaseName>_yyyyMMdd_HHmmss.log
+  ```
+
+* CSV export:
+
+  ```text
+  <ScriptBaseName>_yyyyMMdd_HHmmss.csv
+  ```
+
+`<ScriptBaseName>` is derived dynamically:
+
+* If the script file is named `Get-ADComputers.ps1`, the files look like:
+
+  ```text
+  Get-ADComputers_20250101_130000.log
+  Get-ADComputers_20250101_130000.csv
+  ```
+
+The CSV contains one row per computer with at least the following columns:
 
 * `Name`
-* `OperatingSystem`
 * `Description`
-* `Location`
-* Other attributes you select in the script
+* `DNSHostName`
+* `OperatingSystem`
+* `OperatingSystemVersion`
+* `IPv4Address`
+* `Enabled`
+* `LastLogonDate`
+* `WhenCreated`
+* `DistinguishedName`
 
-You can adjust the script to include additional properties if required.
+The same information is also written to the console in a formatted table, which is captured in the transcript.
+
+---
+
+## Usage examples
+
+### 1. List all computers in the domain
+
+Searches the domain root (`defaultNamingContext`) and returns all computer objects.
+
+```powershell
+.\Get-ADComputers.ps1
+```
+
+### 2. Filter by operating system across the domain
+
+Example for Windows 11 devices:
+
+```powershell
+.\Get-ADComputers.ps1 -Filter 'OperatingSystem -like "Windows 11*"'
+```
+
+### 3. List enabled computers in a specific OU subtree
+
+```powershell
+.\Get-ADComputers.ps1 `
+    -SearchBase "OU=Servers,DC=example,DC=com" `
+    -Filter 'Enabled -eq $true'
+```
+
+### 4. Filter by operating system within a specific OU subtree
+
+```powershell
+.\Get-ADComputers.ps1 `
+    -SearchBase "OU=Workstations,DC=example,DC=com" `
+    -Filter 'OperatingSystem -like "Windows 10*"'
+```
+
+After each run the script prints:
+
+* The number of computers found.
+* The path to the transcript log.
+* The path to the CSV file.
 
 ---
 
 ## Notes
 
-* For large environments, you may want to filter further by attributes such as operating system, name prefix, or enabled status.
-* The script is a good starting point for feeding other automation that needs a list of computers.
+* If no matching computers are found, the script writes a message and exits without creating an empty CSV.
+* The script wraps the main logic in a `try` block and writes a descriptive error if something goes wrong.
+* Because the script validates the `SearchBase` DN, it will fail fast if you mistype an OU path instead of silently returning zero results.
+* You can rename the script file without editing the code. The log and CSV file names follow the new script file name automatically.
+
+```
+::contentReference[oaicite:0]{index=0}
+```
