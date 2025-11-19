@@ -1,4 +1,4 @@
-# Active Directory and Domain Management PowerShell Scripts
+# Enterprise Automation Scripts
 
 A small collection of PowerShell scripts to help with day to day Active Directory (AD) and domain joined computer management. Each script lives in its own folder with a dedicated README that covers parameters, examples, and usage notes.
 
