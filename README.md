@@ -31,7 +31,7 @@ All scripts assume:
 
   ```powershell
   Import-Module ActiveDirectory
-````
+  ````
 
 * You are running with sufficient permissions to read or modify the AD objects that the script touches.
 * Network connectivity and firewall rules permit access to your domain controllers and the target computers (for scripts that query the machines themselves).
