@@ -19,6 +19,12 @@
 .PARAMETER GenerateTemplate
     If specified, creates a sample CSV template and exits.
 
+.PARAMETER RetryCount
+    Times to retry looking up the computer after creation before giving up. Default 10.
+
+.PARAMETER RetryDelaySeconds
+    Seconds to wait between retries. Default 3.
+
 .EXAMPLE
     .\Create-ADComputers.ps1 -Path "computers.csv" -TranscriptPath "log.txt" -Verbose
 
@@ -28,7 +34,7 @@
 
 .NOTES
     Author: Brandon Henness
-    Updated: 2025-03-21
+    Updated: 2025-11-05
     Requires: ActiveDirectory module, PowerShell 5.1+
 #>
 
@@ -36,8 +42,18 @@
 param(
     [string]$Path,
     [string]$TranscriptPath,
-    [switch]$GenerateTemplate
+    [switch]$GenerateTemplate,
+    [int]$RetryCount = 10,
+    [int]$RetryDelaySeconds = 3
 )
+
+# PowerShell version check
+if (-not ($PSVersionTable.PSVersion.Major -eq 5 -and $PSVersionTable.PSVersion.Minor -eq 1)) {
+    Write-Host "This script must be run in Windows PowerShell 5.1 (not PowerShell 7+)." -ForegroundColor Red
+    Write-Host "Detected version: $($PSVersionTable.PSVersion.ToString())" -ForegroundColor Yellow
+    Write-Host "`nTo open PowerShell 5.1, run 'powershell.exe' instead of 'pwsh.exe'." -ForegroundColor Cyan
+    exit 1
+}
 
 Add-Type -AssemblyName System.Windows.Forms
 
@@ -77,7 +93,7 @@ if ($GenerateTemplate) {
     })
     $template | Export-Csv -Path ".\ComputerTemplate.csv" -NoTypeInformation -Force
     Write-Host "Template CSV created at .\ComputerTemplate.csv" -ForegroundColor Green
-    Stop-Transcript | Out-Null
+    try { Stop-Transcript | Out-Null } catch {}
     return
 }
 
@@ -90,7 +106,7 @@ function Select-CsvFile {
         return $openFileDialog.FileName
     } else {
         Write-Warning "No file selected. Exiting..."
-        Stop-Transcript | Out-Null
+        try { Stop-Transcript | Out-Null } catch {}
         exit
     }
 }
@@ -106,7 +122,7 @@ try {
     Write-Verbose "Successfully imported CSV data."
 } catch {
     Write-Error "Failed to import CSV file. Error: $($_.Exception.Message)"
-    Stop-Transcript | Out-Null
+    try { Stop-Transcript | Out-Null } catch {}
     exit
 }
 
@@ -115,6 +131,9 @@ function New-ComputerName {
         [string]$SiteID,
         [string]$ServiceTag
     )
+    $SiteID = $SiteID.Trim()
+    $ServiceTag = $ServiceTag.Trim()
+
     $domainPrefix = "OSN"
     $maxLength = 15
     $availableLength = $maxLength - ($domainPrefix.Length + $SiteID.Length)
@@ -135,6 +154,10 @@ function New-ADComputerObject {
         [string]$Description,
         [string]$OU
     )
+    $Name = $Name.Trim()
+    $Description = $Description.Trim()
+    $OU = $OU.Trim()
+
     try {
         New-ADComputer -Name $Name -Path $OU -Description $Description -PassThru -ErrorAction Stop | Out-Null
         Write-Verbose "Computer object '$Name' created in OU '$OU'."
@@ -148,16 +171,46 @@ function Add-ComputerToGroups {
         [string]$ComputerName,
         [string[]]$Groups
     )
+    $ComputerName = $ComputerName.Trim()
     foreach ($group in $Groups) {
         if (![string]::IsNullOrWhiteSpace($group)) {
+            $grp = $group.Trim()
             try {
-                Add-ADGroupMember -Identity $group -Members "$ComputerName$" -ErrorAction Stop
-                Write-Verbose "Computer '$ComputerName' added to group '$group'."
+                Add-ADGroupMember -Identity $grp -Members "$ComputerName$" -ErrorAction Stop
+                Write-Verbose "Computer '$ComputerName' added to group '$grp'."
             } catch {
-                Write-Warning "Failed to add '$ComputerName' to '$group'. Error: $($_.Exception.Message)"
+                Write-Warning "Failed to add '$ComputerName' to '$grp'. Error: $($_.Exception.Message)"
             }
         }
     }
+}
+
+function Get-ADComputerRetry {
+    <#
+    .SYNOPSIS
+        Looks up a computer by sAMAccountName with retries to ride out replication.
+    .DESCRIPTION
+        Uses -Filter on sAMAccountName to avoid DN vs Name ambiguity and to match the
+        trailing $ used by computer accounts.
+    #>
+    param(
+        [Parameter(Mandatory=$true)][string]$ComputerName,
+        [int]$RetryCount = 10,
+        [int]$RetryDelaySeconds = 3
+    )
+
+    $ComputerName = $ComputerName.Trim()
+    $sam = "$ComputerName$"
+    for ($i = 0; $i -lt $RetryCount; $i++) {
+        try {
+            $obj = Get-ADComputer -Filter "sAMAccountName -eq '$sam'" -Properties DistinguishedName -ErrorAction Stop
+            if ($obj) { return $obj }
+        } catch {
+            # swallow and retry
+        }
+        Start-Sleep -Seconds $RetryDelaySeconds
+    }
+    return $null
 }
 
 function Set-JoinDomainPermission {
@@ -165,43 +218,81 @@ function Set-JoinDomainPermission {
     .SYNOPSIS
         Sets domain join permissions for a group on a computer object.
     .DESCRIPTION
-        Grants a group full control on the specific computer object (no inheritance)
-        by modifying the object's ACL using the AD: drive (Get-Acl/Set-Acl).
+        Grants a group full control on the specific computer object with no inheritance
+        by modifying the object's ACL using the AD drive. Uses retry to ensure the object
+        is visible before ACL work.
     #>
     param (
         [string]$ComputerName,
-        [string]$GroupName
+        [string]$GroupName,
+        [int]$RetryCount,
+        [int]$RetryDelaySeconds
     )
-    # Retrieve the computer object's DN using Get-ADComputer.
-    $computer = Get-ADComputer -Identity $ComputerName -Properties DistinguishedName
-    if (-not $computer) {
-        throw "Computer '$ComputerName' not found."
+
+    if ([string]::IsNullOrWhiteSpace($GroupName)) {
+        Write-Verbose "No JoinGroup provided for $ComputerName. Skipping ACL."
+        return
     }
+
+    # Confirm the computer exists and we can resolve its DN
+    $computer = Get-ADComputerRetry -ComputerName $ComputerName -RetryCount $RetryCount -RetryDelaySeconds $RetryDelaySeconds
+    if (-not $computer) {
+        Write-Warning "Computer '$ComputerName' not found after $RetryCount attempts. Skipping ACL."
+        return
+    }
+
     $dn = $computer.DistinguishedName
     $ADPath = "AD:\$dn"
     Write-Verbose "Setting permissions on AD path: $ADPath"
-    
-    # Retrieve the current ACL.
-    $acl = Get-Acl -Path $ADPath
-    
-    # Get the group's SID.
-    $ntAccount = New-Object System.Security.Principal.NTAccount($GroupName)
-    $sid = $ntAccount.Translate([System.Security.Principal.SecurityIdentifier])
-    
-    # Define full control rights using GenericAll.
-    $rights = [System.DirectoryServices.ActiveDirectoryRights]::GenericAll
+
+    # Get current ACL
+    try {
+        $acl = Get-Acl -Path $ADPath -ErrorAction Stop
+    } catch {
+        Write-Warning "Failed to read ACL for '$ComputerName' at $ADPath. Error: $($_.Exception.Message)"
+        return
+    }
+
+    # Resolve the target group SID
+    try {
+        $ntAccount = New-Object System.Security.Principal.NTAccount($GroupName.Trim())
+        $sid = $ntAccount.Translate([System.Security.Principal.SecurityIdentifier])
+    } catch {
+        Write-Warning "Could not resolve group '$GroupName' to SID. Skipping ACL update for '$ComputerName'. Error: $($_.Exception.Message)"
+        return
+    }
+
+    # Avoid duplicate rule for the same SID with GenericAll on the object
+    $hasRule = $false
+    foreach ($rule in $acl.Access) {
+        try {
+            $ruleSid = $rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier])
+            if ($ruleSid -eq $sid -and ($rule.ActiveDirectoryRights -band [System.DirectoryServices.ActiveDirectoryRights]::GenericAll)) {
+                $hasRule = $true
+                break
+            }
+        } catch {
+            # ignore translation issues and continue
+        }
+    }
+    if ($hasRule) {
+        Write-Verbose "ACL already grants GenericAll to '$GroupName' on '$ComputerName'. Skipping add."
+        return
+    }
+
+    # Build access rule for object only (no inheritance)
+    $rights      = [System.DirectoryServices.ActiveDirectoryRights]::GenericAll
     $controlType = [System.Security.AccessControl.AccessControlType]::Allow
     $inheritance = [System.DirectoryServices.ActiveDirectorySecurityInheritance]::None
-    
-    # Create and add the access rule.
-    $accessRule = New-Object System.DirectoryServices.ActiveDirectoryAccessRule (
-        $sid, $rights, $controlType, $inheritance
-    )
-    $acl.AddAccessRule($accessRule)
-    
-    # Write the updated ACL back to the computer object.
-    Set-Acl -Path $ADPath -AclObject $acl -ErrorAction Stop
-    Write-Verbose "Successfully granted full control to '$GroupName' on '$ComputerName'"
+
+    try {
+        $adRule = New-Object System.DirectoryServices.ActiveDirectoryAccessRule ($sid, $rights, $controlType, $inheritance)
+        $acl.AddAccessRule($adRule)
+        Set-Acl -Path $ADPath -AclObject $acl -ErrorAction Stop
+        Write-Verbose "Successfully granted full control to '$GroupName' on '$ComputerName'."
+    } catch {
+        Write-Warning "Failed to update ACL on '$ComputerName'. Error: $($_.Exception.Message)"
+    }
 }
 
 Write-Verbose "Script execution started."
@@ -211,12 +302,14 @@ $count = 0
 
 foreach ($computer in $computers) {
     $count++
-    $siteID = $computer."Site ID"
-    $serviceTag = $computer."Service Tag"
-    $description = $computer.Description
-    $ouLocation = $computer.OU
-    $groups = @($computer.Group1, $computer.Group2, $computer.Group3, $computer.Group4, $computer.Group5)
-    $joinGroup = $computer.JoinGroup
+
+    # Normalize and trim CSV inputs
+    $siteID      = ($computer."Site ID"     | ForEach-Object { $_.ToString().Trim() })
+    $serviceTag  = ($computer."Service Tag" | ForEach-Object { $_.ToString().Trim() })
+    $description = ($computer.Description   | ForEach-Object { $_.ToString().Trim() })
+    $ouLocation  = ($computer.OU            | ForEach-Object { $_.ToString().Trim() })
+    $groups      = @($computer.Group1, $computer.Group2, $computer.Group3, $computer.Group4, $computer.Group5) | ForEach-Object { if ($_ -ne $null) { $_.ToString().Trim() } }
+    $joinGroup   = ($computer.JoinGroup     | ForEach-Object { $_.ToString().Trim() })
 
     try {
         $computerName = New-ComputerName -SiteID $siteID -ServiceTag $serviceTag
@@ -226,11 +319,14 @@ foreach ($computer in $computers) {
         continue
     }
 
+    # Create object
     New-ADComputerObject -Name $computerName -Description $description -OU $ouLocation
+
+    # Add to groups
     Add-ComputerToGroups -ComputerName $computerName -Groups $groups
 
-    # Apply join permissions by granting full control to the join group.
-    Set-JoinDomainPermission -ComputerName $computerName -GroupName $joinGroup
+    # Apply join permissions with retry
+    Set-JoinDomainPermission -ComputerName $computerName -GroupName $joinGroup -RetryCount $RetryCount -RetryDelaySeconds $RetryDelaySeconds
 
     Write-Progress -Activity "Creating AD Computers" -Status "Processing $computerName" -PercentComplete (($count / $total) * 100)
 }
