@@ -28,7 +28,7 @@ The script is designed so that it does not hard code its own file name. The base
 
   ```powershell
   Import-Module ActiveDirectory
-````
+  ````
 
 * Sufficient permissions to query the domain and OUs you target.
 
