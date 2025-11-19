@@ -23,7 +23,7 @@ This script queries Active Directory for computer objects in a given OU, attempt
 
   ```powershell
   Import-Module ActiveDirectory
-  ```
+  ````
 
 * Permission to query the target computers with CIM or WMI.
 * Network access from the machine running the script to the target computers.

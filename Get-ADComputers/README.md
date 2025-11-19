@@ -21,7 +21,7 @@ This script enumerates computer objects from a given OU in Active Directory and 
 
   ```powershell
   Import-Module ActiveDirectory
-  ```
+  ````
 
 * Read access to the OUs you are querying.
 

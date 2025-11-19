@@ -23,7 +23,7 @@ This script creates Active Directory computer objects from a CSV file and immedi
 
   ```powershell
   Import-Module ActiveDirectory
-  ```
+  ````
 
 * Permissions to create computer objects in the target OUs and to edit their ACLs.
 
