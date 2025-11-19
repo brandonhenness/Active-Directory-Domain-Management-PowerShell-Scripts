@@ -1,10 +1,3 @@
-You are right, that README is out of date compared to this script.
-
-Here is an updated `Get-ADComputers/README.md` that matches the current version you pasted, including the dynamic file name, `SearchBase` and `Filter` behavior, and the exported properties.
-
-You can drop this straight into `Get-ADComputers/README.md`:
-
-````md
 # Get AD Computers (`Get-ADComputers.ps1`)
 
 This script lists computer objects in Active Directory using a flexible `Get-ADComputer -Filter` expression. It writes results to a timestamped CSV file and logs the entire run to a transcript file next to the script.
@@ -168,7 +161,3 @@ After each run the script prints:
 * The script wraps the main logic in a `try` block and writes a descriptive error if something goes wrong.
 * Because the script validates the `SearchBase` DN, it will fail fast if you mistype an OU path instead of silently returning zero results.
 * You can rename the script file without editing the code. The log and CSV file names follow the new script file name automatically.
-
-```
-::contentReference[oaicite:0]{index=0}
-```
